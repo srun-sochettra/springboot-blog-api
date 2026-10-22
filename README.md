@@ -1,179 +1,75 @@
-# API Blog
+# Spring Boot Blog API
 
-REST API for a blog backend built with Spring Boot, JWT authentication, PostgreSQL, MyBatis, and Pinata IPFS file uploads.
+**A PostgreSQL-backed blog backend with JWT authentication, owner-checked posts and comments, likes and multipart uploads.**
 
-## Tech Stack
-
-- Java 21
-- Spring Boot 3.4.1
-- Spring Security (JWT)
-- MyBatis
-- PostgreSQL
-- springdoc OpenAPI (Swagger UI)
-- Maven
+Built with Java 21, Spring Boot 3.4.1 and MyBatis. This project explores authenticated content workflows, database-backed token invalidation and Pinata file uploads. It is a development project, not an audited production service or a verified live deployment.
 
 ## Features
 
-- User registration and login with JWT token generation
-- Stateless authentication with Spring Security filter chain
-- Global logout by token version invalidation
-- Create post with image upload support (multipart/form-data)
-- Image upload to Pinata and storage of returned IPFS gateway URL
-- Standardized API response format
+- Register and log in with BCrypt password hashing and JWT issuance.
+- Logout-all increments a database token version checked on later requests.
+- List posts, retrieve a post and view the current user's posts.
+- Check ownership before editing/deleting posts and comments.
+- Like/unlike posts and return counts/current-user state.
+- Upload files to Pinata and store gateway URLs in PostgreSQL.
+- Use request/response DTOs and a relational schema with foreign keys.
 
-## Project Structure
+All post/comment routes require authentication under SecurityConfig, including reads. Service branches accommodating anonymous users do not make those routes public. No roles, pagination, moderation or refresh-token workflow is supplied.
 
-- `src/main/java/com/example/api_blog/controller` - API controllers
-- `src/main/java/com/example/api_blog/service` - business logic and integrations
-- `src/main/java/com/example/api_blog/repository` - MyBatis data access layer
-- `src/main/resources/schema.sql` - database schema
-- `src/main/resources/application.properties` - application configuration
+## Stack and setup
 
-## Additional Docs
+The POM declares Java 21, Spring Boot 3.4.1, MyBatis 3.0.3, Springdoc 2.8.5 and JJWT 0.12.6. The wrapper selects Maven 3.9.14. Docker uses Java 21 and PostgreSQL 15 Alpine. These are source declarations, not freshly tested dependencies.
 
-- `README.portfolio.md` - concise project overview for GitHub visitors
-- `README.onboarding.md` - detailed setup and troubleshooting guide for team members
-
-## Prerequisites
-
-- JDK 21+
-- Maven 3.9+ (or use included Maven wrapper)
-- PostgreSQL running locally (default expected: `localhost:5432`)
-- Pinata account and API keys (for image upload endpoint)
-
-## Environment Variables
-
-Set the following environment variables before running the app:
-
-- `DB_PASSWORD` - password for PostgreSQL user in `application.properties`
-- `JWT_SECRET` - secret key used to sign JWT tokens
-- `PINATA_API_KEY` - Pinata API key
-- `PINATA_SECRET_KEY` - Pinata secret API key
-- `PINATA_JWT` - configured in properties (currently optional in code path)
-
-## Configuration
-
-Default database settings from `application.properties`:
-
-- URL: `jdbc:postgresql://localhost:5432/api_blog`
-- Username: `postgres`
-- Password: `${DB_PASSWORD}`
-
-If your environment differs, update `src/main/resources/application.properties`.
-
-## Database Setup
-
-1. Create a PostgreSQL database named `api_blog`.
-2. Run the SQL script from `src/main/resources/schema.sql`.
-
-Example using `psql`:
-
-```bash
-psql -U postgres -d api_blog -f src/main/resources/schema.sql
-```
-
-## Run the Application
-
-Using Maven wrapper:
-
-```bash
-./mvnw spring-boot:run
-```
-
-On Windows PowerShell:
+Read [local setup](README.onboarding.md) before starting. Suggested Windows command after configuration:
 
 ```powershell
 .\mvnw.cmd spring-boot:run
 ```
 
-The app runs by default on `http://localhost:8080`.
+POSIX equivalent: `sh mvnw spring-boot:run`. Initial use may download Maven and dependencies. Existing docs list Swagger paths `/swagger-ui/index.html` and `/v3/api-docs`; no startup or endpoint availability was checked here.
 
-## API Documentation
+## Endpoints
 
-When the app is running:
+| Method | Path | Behaviour |
+| --- | --- | --- |
+| POST | `/api/v1/auths/register` | Public registration; HTTP 201 with user DTO |
+| POST | `/api/v1/auths/login` | Public login; token response |
+| POST | `/api/v1/auths/logout-all` | Authenticated token-version increment |
+| GET | `/api/v1/posts` | Authenticated list |
+| GET | `/api/v1/posts/{id}` | Authenticated read |
+| GET | `/api/v1/posts/my-posts` | Current user's posts |
+| POST | `/api/v1/posts/add-post` | Multipart title, description and required files part |
+| PUT | `/api/v1/posts/{id}` | Owner-only multipart update; optional files |
+| DELETE | `/api/v1/posts/{id}` | Owner-only deletion |
+| POST / DELETE | `/api/v1/posts/{id}/like` | Like/unlike |
+| POST | `/api/v1/comments/add-comment` | JSON content and postId |
+| PUT / DELETE | `/api/v1/comments/{id}` | Owner-only edit/delete |
 
-- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
-- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+Post creation returns HTTP 200. Updates preserve omitted title/description and append non-empty uploaded files rather than replacing images. Database deletion cascades related rows, but no remote unpin/delete operation is supplied.
 
-## Authentication Flow
+Registration/login validate non-blank fields and email syntax; comments require non-blank content. PostRequest has no validation annotations, and post controllers do not apply @Valid. No application-level file-type checks or explicit multipart limits are configured; framework defaults are not a reviewed upload policy.
 
-1. Register user at `POST /api/v1/auths/register`
-2. Login at `POST /api/v1/auths/login` to receive JWT token
-3. Send token in Authorization header for protected endpoints:
+## Architecture and boundaries
 
-```http
-Authorization: Bearer <your_token>
-```
+Controllers -> services -> MyBatis mappers -> PostgreSQL. Post operations call Pinata inside database transactions. A rollback cannot undo a completed external upload; no compensating cleanup is supplied.
 
-## API Endpoints
+UserResponse excludes passwords but includes email. Nested mapper queries and per-post like checks need performance review before claiming scale. Response envelopes contain message, payload, numeric status and dateTime, but authentication/filter errors do not consistently use that envelope. Timestamps have no explicit timezone.
 
-### Auth
+## Verification
 
-- `POST /api/v1/auths/register` (public)
-- `POST /api/v1/auths/login` (public)
-- `POST /api/v1/auths/logout-all` (authenticated)
-
-Register request body:
-
-```json
-{
-  "userName": "john",
-  "email": "john@example.com",
-  "password": "strong-password"
-}
-```
-
-Login request body:
-
-```json
-{
-  "email": "john@example.com",
-  "password": "strong-password"
-}
-```
-
-### Posts
-
-- `POST /api/v1/posts/add-post` (authenticated, `multipart/form-data`)
-
-Expected multipart fields:
-
-- `title` (text)
-- `description` (text)
-- `files` (one or many file parts)
-
-Example `curl`:
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/posts/add-post" \
-  -H "Authorization: Bearer <your_token>" \
-  -F "title=My First Post" \
-  -F "description=Post with IPFS images" \
-  -F "files=@/path/to/image1.jpg" \
-  -F "files=@/path/to/image2.png"
-```
-
-## Response Format
-
-Most endpoints return the same response envelope:
-
-```json
-{
-  "message": "string",
-  "payload": {},
-  "status": 200,
-  "dateTime": "2026-05-01T20:00:00"
-}
-```
-
-## Build
-
-```bash
-./mvnw clean package
-```
-
-Windows PowerShell:
+Suggested Windows checks:
 
 ```powershell
-.\mvnw.cmd clean package
+.\mvnw.cmd test
+.\mvnw.cmd package
 ```
+
+POSIX equivalents use `sh mvnw test` and `sh mvnw package`. Mocked service tests and a context smoke test are supplied, not fresh passing results or proof of SQL/JWT-filter/provider integration. test_script.sh only prints a message. Docker packaging skips test execution.
+
+No installation, compilation, tests, Docker startup, database operation, HTTP request or provider upload was performed during this documentation refresh.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [portfolio summary](README.portfolio.md) and [refresh notes](docs/repository-refresh.md).
+
+## Licence
+
+No root project licence file is supplied. Wrapper notices do not establish an application licence. This refresh assigns none.
